@@ -11,8 +11,7 @@ const MOI = MathOptInterface
 """
     run_non_adaptive(R_train, R_test, mu_bar, asset_names)
 
-Solve the simple MAD model once on the training data (no allocation cap,
-no transaction costs) and evaluate the fixed portfolio on the test data.
+Solve the simple MAD model once on the training data and evaluate the fixed portfolio on the test data.
 
 Arguments
 ---------
