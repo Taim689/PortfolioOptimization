@@ -5,7 +5,7 @@
 # Load shared functions, constants, data loading, and plotting setup.
 include("sensitivity_common.jl")
 
-# Load asset names, training returns, and test returns.
+# Load asset names, training returns, and test returns. 
 asset_names, R_train, R_test = load_return_data()
 
 # Get the number of assets from the training return matrix.
