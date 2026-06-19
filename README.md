@@ -1,115 +1,121 @@
 # Portfolio Optimization with the Mean Absolute Deviation (MAD) Model
 
-> Project work in Applied Mathematics (DTU, course 01666), Group 6.2 by Dániel László Seregi, Taim Kamal Brik and Victor Kragballe. This study implements the **Mean Absolute Deviation (MAD)** portfolio model — a linear-programming alternative to Markowitz mean–variance — and tests whether **adaptive rebalancing** (rolling and expanding estimation windows) improves out-of-sample performance over a static portfolio, under realistic allocation caps and transaction costs, on a universe of 20 US ETFs.
+> Project work in Applied Mathematics (DTU, course 01666), Group 6.2 — Dániel László Seregi, Taim Kamal Brik and Victor Kragballe. Understanding how scenario-based risk measures perform under different portfolio constraints and rebalancing schemes is essential for evaluating the practical reliability of portfolio optimization models. The **Mean Absolute Deviation (MAD)** model serves as a linear alternative to the classical Markowitz variance model: it replaces quadratic risk with the average absolute deviation of portfolio returns, making it attractive from a computational point of view. This study uses monthly return data for twenty American ETFs from diverse sectors to construct a scenario matrix spanning various market regimes, and investigates whether adaptive rebalancing strategies — implemented through expanding and rolling estimation windows — improve out-of-sample performance relative to a static MAD portfolio. Allocation caps and proportional transaction costs are incorporated to reflect realistic investment constraints. Performance is evaluated primarily through the Sharpe ratio, supplemented by average monthly returns, realized MAD values and the HHI portfolio concentration metric. The analysis indicates that adaptive rebalancing strategies can enhance risk-adjusted performance relative to a static MAD portfolio: rolling and expanding window schemes show complementary improvements, with the rolling window yielding higher Sharpe ratios and the expanding window yielding higher total returns. Ultimately, **no single adaptive framework dominates unconditionally** — the preferred strategy depends purely on whether an investor prioritizes the Sharpe ratio, total returns or portfolio stability.
 
-## 1. Background and motivation
+## 1. Introduction
 
-Every investor faces the same fundamental problem: markets are uncertain, asset returns fluctuate unpredictably, and choosing a portfolio by intuition tends to produce unnecessarily risky outcomes. Portfolio optimization gives a disciplined way to balance risk and return, quantify diversification, and build allocations that hold up across market regimes.
+Portfolio optimization addresses a fundamental problem faced by all exchange investors: financial markets are uncertain, asset returns fluctuate unpredictably, and choosing a portfolio by intuition alone often leads to unnecessarily risky outcomes. A systematic optimization framework provides a disciplined way to balance risk and return, quantify diversification, and construct portfolios that will hold against the winds of financial markets.
 
-The classical approach is the Markowitz mean–variance model, which measures risk through the variance of returns and is solved as a quadratic program (QP). Its defining object is the covariance matrix, where each entry measures how two assets co-move — the mathematical basis for diversification. As Markowitz famously put it, diversification is the only free lunch in investing [^wiki]. But variance has two practical drawbacks: it requires estimating a noise-sensitive covariance matrix, and QP solvers scale roughly cubically with the number of assets.
+From a more mathematical standpoint, portfolio optimization is a quantitative investment strategy that aims to construct a portfolio by either maximizing expected return for a given level of risk or minimizing risk for a given level of expected return. Most classic models, such as the famous Markowitz mean-variance model, are formulated as quadratic programs (QP) because they measure portfolio risk using the variance of returns. A defining feature of this model is the covariance matrix, where each entry `σ_ij` measures how the returns of assets `i` and `j` move together, forming the mathematical basis for analyzing diversification. As Markowitz famously noted, diversification is the only free lunch in investing [^wiki]. Diversification reduces portfolio volatility because asset prices do not all move in the same direction or with the same magnitude. However, since asset returns are often inter-correlated, diversification can reduce but never fully eliminate variance.
 
-The **MAD model** replaces variance with the average *absolute* deviation of portfolio returns from their mean [^book]. This keeps the entire problem **linear** (an LP), so it solves faster and scales almost linearly with problem size. Crucially, MAD is **scenario-based**: historical monthly returns are treated as discrete equally likely outcomes, so dependence between assets is captured directly through the empirical return distribution rather than through an estimated covariance matrix.
+Linear programming (LP) models such as the MAD model have become increasingly popular because LP solvers are generally more reliable, faster, and more scalable than QP solvers. LPs scale almost linearly with problem size, whereas QPs require costly matrix factorizations that grow cubically with the number of variables. Unlike the quadratic approach, which relies on estimating a covariance matrix that is sensitive to noise and estimation error, the MAD model uses a scenario-based strategy: historical returns are treated as discrete possible outcomes at the target time, which allows dependence between assets to be reflected directly through the empirical return distribution.
 
-The research question driving this repository:
-
-> **Can adaptive rebalancing strategies (rolling and expanding estimation windows) improve out-of-sample performance relative to a static MAD portfolio, and which adaptive framework most reliably delivers superior risk-adjusted performance?**
-
-The headline answer: **no single adaptive framework dominates.** The rolling model delivers the best risk-adjusted return (highest Sharpe), the expanding model delivers the highest total return, and the static model is consistently the weakest of the three. Which one to prefer depends entirely on the investor's objective.
+In this project we focus on the MAD model, which minimizes the average absolute deviation of portfolio returns from their expected value, incorporating both upward and downward fluctuations symmetrically. We begin by establishing a foundational MAD model with financial and heuristic constraints, after which we investigate whether different adaptive portfolio rebalancing methods can improve out-of-sample performance relative to a static portfolio strategy [^adaptive].
 
 ## 2. The MAD model
 
-MAD minimizes the probability-weighted average absolute deviation of portfolio returns from their expected value. With each of the `T` historical months treated as an equally likely scenario (`p_t = 1/T`), the absolute value is linearized using auxiliary deviation variables `d_t`, giving a clean linear program:
+The MAD model computes the average absolute deviation of the portfolio's scenario returns `y_t`, weighted by the respective probability `p_t`, from the portfolio's expected return `μ`. Assuming all scenarios are equally likely, we set `p_t = 1/T` for each scenario `t`. The MAD measure accounts for all deviations of the rate of return of the portfolio from its expected value, both below and above the expected value [^book].
+
+To transform the absolute deviation into a linear form, auxiliary variables `d_t` are introduced for each scenario, and the absolute value is represented using two linear inequality constraints. At the optimum the solver sets `d_t` as small as possible, so these constraints together make `d_t = |y_t − μ|`. The full linear program is:
 
 ```
 minimize   Σ_t  p_t · d_t
-subject to d_t ≥  (y_t − μ)          for all scenarios t      (upper deviation)
-           d_t ≥ −(y_t − μ)          for all scenarios t      (lower deviation)
-           y_t = Σ_j r_jt · x_j      for all scenarios t      (scenario return)
-           μ   = Σ_j μ_j · x_j                                 (expected portfolio return)
-           μ   ≥ μ₀                                            (minimum required return)
-           Σ_j x_j = 1                                         (fully invested)
-           x_j ≥ 0                  for all assets j           (no short selling)
+subject to d_t ≥  (y_t − μ)          t = 1, …, T      (upper deviation)
+           d_t ≥ −(y_t − μ)          t = 1, …, T      (lower deviation)
+           y_t = Σ_j r_jt · x_j      t = 1, …, T      (scenario portfolio return)
+           μ   = Σ_j μ_j · x_j                          (expected portfolio return)
+           μ   ≥ μ₀                                     (minimum required return)
+           Σ_j x_j = 1                                  (full investment)
+           x_j ≥ 0                  j = 1, …, n         (no short-selling)
 ```
 
-Here `x_j` are the portfolio weights, `r_jt` is the realized return of asset `j` in month `t`, `μ_j` is the expected return of asset `j`, and `μ₀` is the investor's minimum target return. At the optimum the solver pushes each `d_t` as small as possible, so the two deviation constraints together enforce `d_t = |y_t − μ|`.
+The primary advantage of the MAD model is that it can be formulated as a linear program. By using the auxiliary variables `d_t` as containers for the deviation in each scenario, the objective function and all constraints remain linear, allowing the optimization problem to be solved efficiently even with thousands of scenarios.
 
-### Extensions
+### Allocation constraints
 
-Two "real-world" features are layered on top of the base model to make it deployable:
+To enhance the practical applicability of the MAD model, it is often necessary to incorporate "real features" that reflect specific investor preferences or market restrictions. If an investor wants to limit the weight of a specific asset to a maximum of e.g. 25%, the linear constraint `x_j ≤ 0.25` is added. The inclusion of allocation maximum constraints is a crucial tool for diversification enforcement. While the MAD model naturally seeks to reduce risk, the underlying historical data may sometimes suggest that a single asset has such a high expected return with low deviation that the model would otherwise allocate a disproportionately large share of the capital to it. By implementing this diversification constraint, the investor ensures that the portfolio remains diversified across at least several different ETFs — at a minimum 4 ETFs if the asset weight maximum is 25%. This prevents the model from putting all of the investor's eggs into one basket.
 
-**Allocation cap.** A single constraint `x_j ≤ w_max` (default 25%) prevents the optimizer from concentrating everything in one asset. Without it, a small asset set often collapses to a single holding — e.g. on `[SPY, SCHG, VUG, MGK]` with `μ₀ = 1%` the model puts 100% in SPY. The cap forces diversification across at least `1/w_max` assets (≥4 at 25%).
+### Transaction costs
 
-**Proportional transaction costs.** Each rebalance incurs a cost proportional to the traded amount. With buy/sell variables `b_j, s_j ≥ 0` satisfying `x_j − x_jᵒˡᵈ = b_j − s_j`, the cost `Σ_j c_j (b_j + s_j)` is subtracted inside the return constraint. A flat rate `c_j = 0.15%` is used throughout [^natixis][^schwab]. Costs apply only to the adaptive (rebalancing) models — the static model never trades after the initial purchase.
+In practice, transaction costs are incurred when the composition of the portfolio is changed, so the cost should depend on the amount invested, not only on the final portfolio weights. We use a pure proportional cost structure (PPC), where the cost for asset `j` is proportional to the absolute change in its portfolio weight [^book]. To keep the model linear, the traded amount is split into two non-negative variables `b_j` and `s_j` (buying and selling), with `x_j − x_jᵒˡᵈ = b_j − s_j`. At the optimum `b_j + s_j` represents `|x_j − x_jᵒˡᵈ|`, so the total proportional transaction cost is `Σ_j c_j (b_j + s_j)`, which we account for by subtracting it from the expected portfolio return. We use a rolling implementation where `xᵒˡᵈ` is the portfolio obtained at the previous rebalancing date [^rebalancing].
+
+We set the proportional cost rate to `c_j = 0.15%` for all assets. This is a simplified transaction cost assumption applied to the traded amount. ETF trading costs include bid-ask spreads and possible brokerage commissions, and the spread depends on factors such as liquidity, share price, volatility, and the cost of trading the underlying securities [^transcosts]. Since these costs differ across ETFs and over time, we use a fixed value of 0.15% in all experiments to keep the comparison between models consistent [^natixis][^schwab]. The transaction costs are only used in the adaptive models.
 
 ## 3. Data
 
-Historical monthly returns for **20 US ETFs** are downloaded from Yahoo Finance [^yahoo] via the `yfinance` package [^yfinance]. ETFs are chosen over single stocks because each one provides broad exposure across a sector or asset class, which makes them well-suited to studying diversification. The universe was selected for **maturity** (all funds >10 years old) and **sector diversification** (distinct underlying market drivers), and restricted to American funds to isolate returns from foreign-exchange noise.
+To build our portfolio, we collect historical market data for 20 exchange traded funds (ETFs) from Yahoo Finance [^yahoo]. We choose ETFs because they can single-handedly provide broader market exposure across different sectors, regions and asset classes in comparison to traditional stocks, which makes them well-suited for studying diversification and portfolio optimization at the same time. Following the project scope, we use a historical period of around 11 years to capture different market conditions, including stable periods and times of increased market volatility. The data used in the project consists of historical price series for each ETF — the adjusted closing prices observed at the last day of each month, adjusted to account for stock splits, dividends, capital gains distributions and other corporate actions.
 
-| ETF  | Sector | Annual return | Age (yrs) | | ETF  | Sector | Annual return | Age (yrs) |
-|------|--------|--------------:|----------:|-|------|--------|--------------:|----------:|
-| SPY  | Top 500 US companies        | 10.59% | 33 | | XLK  | S&P tech companies       | 9.51%  | 27 |
-| SCHG | US large growth             | 15.65% | 16 | | AIRR | Industrials & reg. banks | 16.57% | 12 |
-| VUG  | Vanguard large growth       | 11.73% | 22 | | VGT  | Vanguard US tech         | 13.93% | 22 |
-| MGK  | Largest US growth           | 12.96% | 18 | | SOXX | US semiconductor index   | 12.66% | 24 |
-| XLY  | US consumer discretionary   | 9.56%  | 27 | | GLD  | Gold                     | 11.35% | 21 |
-| IYW  | US technology               | 8.49%  | 25 | | XAR  | US aerospace & defense   | 19.20% | 14 |
-| PSI  | US semiconductors           | 16.51% | 20 | | VPU  | US utilities             | 10.12% | 22 |
-| FDN  | US internet                 | 13.39% | 19 | | XLV  | US healthcare            | 8.37%  | 27 |
-| IGM  | US tech & media             | 11.73% | 25 | | PHO  | US water infrastructure  | 8.31%  | 20 |
-| FTEC | Fidelity US tech            | 20.22% | 12 | | ARKW | Internet / innovation    | 19.42% | 11 |
+| ETF  | Sector | AR (%) | Age (yrs) | | ETF  | Sector | AR (%) | Age (yrs) |
+|------|--------|-------:|----------:|-|------|--------|-------:|----------:|
+| SPY  | Top 500 US companies         | 10.59 | 33 | | XLK  | S&P tech companies              | 9.51  | 27 |
+| SCHG | US large growth stocks       | 15.65 | 16 | | AIRR | US industrial and regional banks| 16.57 | 12 |
+| VUG  | Vanguard large growth        | 11.73 | 22 | | VGT  | Vanguard US tech stocks         | 13.93 | 22 |
+| MGK  | Largest US growth stocks     | 12.96 | 18 | | SOXX | US semiconductor index          | 12.66 | 24 |
+| XLY  | US consumer discretionary    | 9.56  | 27 | | GLD  | Gold                            | 11.35 | 21 |
+| IYW  | US technology companies      | 8.49  | 25 | | XAR  | US aerospace defense            | 19.20 | 14 |
+| PSI  | US semiconductor stocks      | 16.51 | 20 | | VPU  | US utility companies            | 10.12 | 22 |
+| FDN  | US internet companies        | 13.39 | 19 | | XLV  | US healthcare companies         | 8.37  | 27 |
+| IGM  | US tech and media stocks     | 11.73 | 25 | | PHO  | US water infrastructure         | 8.31  | 20 |
+| FTEC | Fidelity US tech stocks      | 20.22 | 12 | | ARKW | Internet stocks                 | 19.42 | 11 |
 
-**Scenario matrix.** Monthly returns are computed from adjusted closing prices (adjusted for splits, dividends and other corporate actions) and arranged into a matrix `R ∈ ℝ^{n×T}`, one row per ETF, one column per month. The common start date is bounded by **ARKW** (incepted Sep 2014 [^arkw]), the youngest fund. After dropping months with any missing values, the final matrix spans **October 2014 – December 2025**, giving **T = 135** monthly observations.
+*"AR" refers to the annualized return of each ETF.* We selected the ETFs based on two criteria: **maturity**, as all funds have been trading for more than 10 years, and **diversification** across economic sectors — by which we mean that the prices of the chosen ETFs are tied to distinct industries, thereby reducing overlap in their underlying market drivers. We have chosen only American ETFs as to isolate returns from foreign exchange noise.
 
-**Train/test split.** A 60/40 split gives **81 training months** (Oct 2014 – Jun 2021) and **54 test months** (Jul 2021 – Dec 2025). Models are estimated only on data available before each test month; the test data is used purely for out-of-sample evaluation.
+**The scenario matrix.** The monthly return of asset `j` in month `t` is `r_jt = (q_jt − q_{j,t−1}) / q_{j,t−1}`, where `q_jt` is the adjusted closing price at the end of month `t`. The resulting returns are organized into a scenario matrix `R ∈ ℝ^{n×T}`, where each row corresponds to an ETF and each column corresponds to one monthly return scenario. Each scenario is treated as equally probable, `p_t = 1/T`. The earliest start date is determined by ARKW, which is the youngest and thereby most recently listed ETF (incepted 30 September 2014 [^arkw]), since all 20 ETFs must have valid adjusted closing prices in the same month before a common return matrix can be formed without missing values. Months with missing values for at least one ETF are removed. The final return matrix contains monthly returns from **October 2014 to December 2025**, giving **T = 135** monthly return observations.
+
+**Train/test split.** The data is split into a training set and a test set using a 60/40 split. This leaves us with **`T_train` = 81** monthly observations to train on (October 2014 to June 2021) and **`T_test` = 54** monthly observations to test on (July 2021 to December 2025). This split is chosen to ensure that the training period is long enough to provide a reliable estimate of both the return and risk characteristics of the 20 ETFs, whilst still leaving the test period sufficiently long to evaluate performance across multiple market conditions.
 
 ## 4. Exploratory data analysis
+
+Before applying the MAD model, we perform an exploratory analysis of the full dataset to understand the return and risk characteristics of the individual ETFs.
 
 <p align="center">
   <img src="figures/scaled_prices.png" alt="Cumulative scaled prices for all 20 ETFs, log scale" width="90%">
 </p>
 
-*Figure 1. Cumulative scaled adjusted-close prices, normalized to 1 at the start of Oct 2014 (log scale).* There is large dispersion in long-run performance: growth-oriented tech ETFs (FTEC, SCHG, ARKW) substantially outperform defensive sectors like VPU (utilities) and XLV (healthcare). The COVID-19 drawdown in early 2020 shows up as a sharp synchronized drop across all funds, followed by a rapid recovery and then the broad 2022 decline.
+*Figure 1. Cumulative scaled adjusted closing prices for all 20 ETFs, normalized to 1 at the start of October 2014.* The figure reveals significant dispersion in long-run performance: growth-oriented technology ETFs such as FTEC, SCHG and ARKW substantially outperform defensive sectors like VPU (utilities) and XLV (healthcare). The COVID-19 drawdown in early 2020 is visible as a sharp, synchronized drop across all ETFs, followed by a rapid recovery, followed by the broad market decline in 2022.
 
 <p align="center">
   <img src="figures/monthly_returns.png" alt="Monthly returns for six selected ETFs" width="90%">
 </p>
 
-*Figure 2. Monthly returns for six representative ETFs (blue = positive, red = negative; dashed line = sample mean).* The March 2020 COVID shock is the largest single negative month across nearly all funds, with the April–May 2020 recovery producing the largest positives. GLD (gold) shows noticeably lower variability — a natural risk-reducing component — while ARKW swings widest in both directions.
+*Figure 2. Monthly returns for six selected ETFs over the full period (October 2014 – December 2025). Positive months are shown in blue and negative months in red. The red dashed line marks the sample mean return for each ETF.* The COVID-19 shock in March 2020 produced the largest single-month negative return across nearly all ETFs, while the recovery in April–May 2020 yielded the largest positive months. GLD exhibits noticeably lower variability than the equity ETFs, making it a natural risk-reducing component, while ARKW shows the widest swings in both directions.
 
 <p align="center">
   <img src="figures/RiskVSsReturn.png" alt="Risk-return scatter of individual ETFs" width="60%">
 </p>
 
-*Figure 3. Risk–return scatter of individual ETFs (x = mean absolute deviation, y = mean monthly return).* The upper-left is desirable (high return, low risk). SPY sits at the low-risk/modest-return end; SOXX, PSI and ARKW occupy the high-return/high-risk corner. No single ETF dominates in both dimensions — which is exactly the motivation for combining them.
+*Figure 3. Risk-return scatter of individual ETFs over the full period (October 2014 – December 2025). The horizontal axis is the mean absolute deviation of monthly returns; the vertical axis is the mean monthly return.* Assets in the upper-left region are desirable, combining high return with low risk, while those in the lower right are unfavorable. SPY occupies the low-risk end of the spectrum with modest return, while SOXX, PSI and ARKW sit in the high-return and high-risk corner. No single ETF dominates in both dimensions simultaneously, which illustrates the motivation for portfolio optimization: by combining assets, the investor can achieve a risk-return profile that no individual ETF offers on its own.
 
 <p align="center">
   <img src="figures/_efficient_frontier.png" alt="MAD efficient frontier" width="60%">
 </p>
 
-*Figure 4. MAD efficient frontier (training period, 25% allocation cap).* Each red dot is an optimal portfolio for a given required return `μ₀`; grey markers are the individual ETFs. The frontier lies to the **left** of every individual ETF, confirming that diversification reduces risk at all return levels. It flattens at the top because maximum return is bounded by the highest-return assets.
+*Figure 4. MAD efficient frontier for the 20-ETF set computed over the training period with a 25% per-asset allocation cap. Each red dot is an optimal portfolio for a given required monthly return `μ₀`. Grey markers show the individual ETFs for reference.* The frontier lies to the left of all individual ETFs, which confirms that diversification does indeed reduce risk for all of the given levels of required return. As the portfolio is pushed toward the highest attainable return, the optimizer concentrates in the ETFs with the highest expected return subject to constraints, and the frontier flattens as no further increase in return is feasible.
 
-## 5. Strategies compared
+## 5. MAD model extensions
 
-| Strategy | How it estimates | Rebalances? | Key parameter |
-|---|---|:---:|---|
-| **Non-adaptive** | Solved once on the training window; weights held fixed for the whole test period | No | — |
-| **Rolling window** | Re-solved each test month using only the most recent `L` months | Yes | `L = 10` |
-| **Expanding window** | Re-solved each test month using *all* past data, with exponential forgetting `λ` weighting recent months more | Yes | `λ = 0.97` |
-| **SPY** | 100% SPY, passive benchmark | No | — |
+The three MAD-based portfolio strategies compared in this project use out-of-sample performance on the test period. The models are estimated using only information available before each test month, and their realized performance is then evaluated on the subsequent test month. SPY is included as a passive benchmark over the same test period.
 
-Exponential forgetting in the expanding model sets scenario probabilities `p_t ∝ λ^(T−t)`, so recent observations carry more weight (`λ = 1` recovers equal weighting). Both adaptive models carry the previous month's portfolio forward as `xᵒˡᵈ` so transaction costs reflect actual trading, and fall back to the previous portfolio if a monthly problem is infeasible.
+| Strategy | How it estimates | Rebalances? |
+|---|---|:---:|
+| **Non-adaptive** | The MAD model is solved once using the initial training period and held fixed throughout the test period | No |
+| **Rolling window** | Re-optimized each test month using only the most recent `L` historical months (lookback window) | Yes |
+| **Expanding window** | Re-optimized each test month using all available past data with exponentially declining weights | Yes |
+| **SPY** | 100% SPY passive benchmark | No |
+
+For the expanding model, since the estimation set expands over time, older observations can have less relevance for the current portfolio. To reduce this effect, the implementation uses exponential forgetting in the scenario probabilities: `p_t ∝ λ^(T−t)` with `0 < λ ≤ 1`. Recent observations receive higher weights, while older observations receive lower weights; when `λ = 1`, all scenarios have equal probability. For the rolling model, the lookback window is set to `L = 10` months for the reported results, but the parameter is adjustable in the code. Each model is tested one month at a time; the test month is used only afterward to measure realized performance.
 
 ## 6. Performance metrics
 
-- **Sharpe ratio** [^sharpe] — average return per unit of volatility (risk-free rate set to 0); the primary measure. Higher is better.
-- **Average monthly return** and **total return** — profitability over the test period.
-- **Realized MAD** — out-of-sample average absolute deviation of returns; lower means a more stable portfolio.
-- **MAD error** — gap between the model's estimated risk and realized risk; measures how well the model predicts its own risk.
-- **HHI** (Herfindahl–Hirschman Index) [^hhi] — `Σ x_j²`; concentration, ranging from `1/n` (perfectly diversified) to `1` (single asset). An HHI near 0.25 corresponds roughly to four assets held at the cap.
+- **Sharpe ratio** [^sharpe] — the return of a portfolio relative to the amount of risk taken, `R̄_p / σ_p` (the risk-free rate is assumed to be zero in the numerical experiments). A higher Sharpe ratio indicates a more efficient portfolio with a better risk-return trade-off, and is the primary measure for comparing strategies.
+- **Average monthly return** and **total return** — the realized profitability of the portfolio over the out-of-sample test period; a higher value indicates that the portfolio generated higher returns on average.
+- **Realized MAD** — the average absolute deviation of the realized monthly portfolio returns from their sample mean in the test period. A lower MAD value indicates a more stable portfolio with less variation in returns.
+- **MAD error** — the difference between the MAD value estimated by the model on the training data and the realized MAD on the test data.
+- **HHI** (Herfindahl–Hirschman Index) [^hhi] — `Σ_j x_j²`, ranging in `[1/n, 1]`, where `1/n` corresponds to a perfectly diversified portfolio with equal weights and `1` corresponds to a fully concentrated portfolio. A lower HHI indicates a more diversified portfolio; an HHI close to 0.25 corresponds roughly to a portfolio concentrated in four assets at the cap.
 
 ## 7. Results
 
-All models below use `μ₀ = 1.9%/month`, `L = 10`, `λ = 0.97`, transaction cost 0.15%, and a 25% allocation cap. All optimization problems are solved with **Gurobi** [^gurobi].
+The parameter values used in the main comparison are `μ₀ = 1.9%` per month, `L = 10` for the rolling-window model, `λ = 0.97` for the expanding model, a transaction cost rate of 0.15%, and an allocation maximum of `w_max = 25%`. All schemes were solved using the **Gurobi** mathematical optimization solver [^gurobi].
 
 | Model | Avg. return | Realized MAD | **Sharpe** | Model MAD | MAD error | HHI | Cost | **Total return** |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -120,45 +126,46 @@ All models below use `μ₀ = 1.9%/month`, `L = 10`, `λ = 0.97`, transaction co
 
 *Table 1. Out-of-sample performance over the 54-month test period.*
 
-**Key takeaways:**
+The best risk-adjusted performance is obtained by the rolling adaptive model, which has the highest Sharpe ratio of 0.286 — higher than both the non-adaptive model (0.178) and the expanding adaptive model (0.239). The rolling model also improves substantially on the non-adaptive strategy in terms of realized MAD, reducing it from 5.240% to 3.869% while increasing the average monthly return from 1.144% to 1.396%. This indicates that the rolling model is better able to adapt to changing market conditions during the test period, as expected, since the model only considers relatively recent data.
 
-- The **rolling** model wins on **risk-adjusted return** (Sharpe 0.286 vs 0.178 static), cutting realized MAD from 5.24% to 3.87% while raising average return — it adapts fastest to changing conditions.
-- The **expanding** model wins on **total wealth** (101.68%) but takes more realized risk, landing its Sharpe roughly level with SPY.
-- Both adaptive models predict their own risk far more accurately than the static model (much smaller MAD error).
-- The rolling model trades more aggressively (3.18% cumulative cost vs 1.06% for expanding), but faster adaptation still pays off in Sharpe terms.
+While all three models underestimate the realized risk during the test period, the adaptive models produce substantially smaller MAD errors than the non-adaptive MAD model. This indicates that incorporating new market information through rebalancing not only provides better returns, but also predicts risk more accurately.
+
+The expanding adaptive model achieves the highest average monthly return (1.500%) and the highest total return (101.68%). However, this comes with a higher realized MAD of 4.933%, which reduces its Sharpe ratio to approximately the same level as SPY. The expanding model therefore performs well in terms of accumulated wealth, but it takes more realized risk than the rolling model. The passive SPY benchmark has lower realized MAD than the adaptive models, but also lower average return than both adaptive MAD strategies — the adaptive MAD models provide value relative to a passive market benchmark, especially when performance is evaluated using return per unit of realized volatility.
 
 <p align="center">
   <img src="figures/cumulative_wealth.png" alt="Cumulative growth of $1 during the test period" width="80%">
 </p>
 
-*Figure 5. Cumulative growth of \$1 over the test period.* Both adaptive models recover more strongly and finish above the static model and SPY. The expanding model ends highest, with the rolling model close behind. The dotted target line (`μ₀ = 1.9%/month`) grows faster than every realized strategy — the in-sample target is ambitious relative to realized out-of-sample performance.
+*Figure 5. Cumulative growth of \$1 during the test period.* The adaptive models recover more strongly during the test period and finish above both the non-adaptive MAD model and SPY. The expanding model ends with the highest wealth index, while the rolling model follows closely behind. The target line based on `μ₀ = 1.9%` per month grows faster than all realized strategies, which shows that the required in-sample return target is ambitious relative to the realized out-of-sample performance.
 
 <p align="center">
   <img src="figures/risk_return_tradeoff.png" alt="Risk-return trade-off during the test period" width="70%">
 </p>
 
+*Figure 6. Risk-return trade-off during the test period.* The rolling adaptive model gives the most attractive risk-return trade-off among the MAD strategies, because it increases average return while keeping realized MAD relatively low. The expanding model gives the highest return but also moves further to the right, meaning it has a higher realized MAD. The non-adaptive model performs worse than the rolling model, since it has both a lower average return and a higher realized MAD.
+
 <p align="center">
   <img src="figures/headline_metrics.png" alt="Headline metrics bar charts" width="95%">
 </p>
 
-*Figure 6. Risk–return trade-off (top) and headline metrics (bottom).* The rolling model gives the most attractive trade-off among the MAD strategies — higher return at low realized MAD. The expanding model gives the highest return but sits further right (higher risk). The bar charts confirm: rolling has the strongest Sharpe, expanding the highest average return, static the weakest overall.
+*Figure 7. Average monthly return, realized MAD, and Sharpe ratio for the MAD strategies and SPY.* The rolling model has the strongest Sharpe ratio, while the expanding model has the highest average monthly return. The non-adaptive model performs the weakest among the MAD strategies, mainly because it cannot adjust its portfolio after the initial training period.
 
 <p align="center">
   <img src="figures/transaction_costs.png" alt="Cumulative transaction costs" width="48%">
   <img src="figures/hhi_over_time.png" alt="Portfolio concentration (HHI) over time" width="48%">
 </p>
 
-*Figure 7. Cumulative transaction costs (left) and portfolio concentration via HHI (right).* The rolling model trades more because it reacts to only the last 10 months; the expanding model's longer memory makes it more stable. HHI hovers near 0.20 for all strategies — fairly concentrated, often close to the structure implied by the 25% cap.
+*Figure 8. Cumulative transaction costs (left) and portfolio concentration measured by HHI (right) during the test period.* The rolling model trades more aggressively than the expanding model, accumulating transaction costs of 3.176% over the test period compared with 1.064% for the expanding model — expected, since the rolling model only uses the most recent 10 months and reacts more strongly when recent return patterns change. Although the rolling model generates higher transaction costs, it still achieves the best risk-adjusted performance, suggesting that the benefits of faster adaptation outweigh the additional costs. The HHI values are mostly close to 0.20, which indicates that the portfolios are fairly concentrated and often close to the structure implied by the 25% allocation cap.
 
 <p align="center">
   <img src="figures/final_weights.png" alt="Final portfolio weights at the end of the test period" width="90%">
 </p>
 
-*Figure 8. Final portfolio weights.* Several weights sit at or near the 25% cap, showing the allocation maximum is active and shapes the final composition — confirming the cap is doing real work in preventing over-concentration.
+*Figure 9. Final portfolio weights at the end of the test period.* The non-adaptive model remains fixed, while the rolling and expanding models end with different allocations due to their adaptive rebalancing rules. Several weights are close to the 25% cap, showing that the allocation maximum is active and affects the final portfolio composition. This confirms that the cap is important for preventing the optimizer from concentrating too heavily in a small number of ETFs.
 
 ## 8. Sensitivity analysis
 
-The conclusions are stress-tested against four parameters to check they aren't artifacts of a single arbitrary choice.
+A sensitivity analysis is conducted to examine how the adaptive MAD strategies respond to changes in the main model parameters. The purpose is to determine whether the main results are dependent on a single arbitrary parameter choice or whether the conclusions are stable across nearby specifications.
 
 ### Rolling-window length `L`
 
@@ -174,12 +181,14 @@ The conclusions are stress-tested against four parameters to check they aren't a
 | 48 | 1.472% | 5.279% | 0.219 | 0.206 | 1.070% | 95.71% |
 | 60 | 1.291% | 4.886% | 0.210 | 0.199 | 0.989% | 81.10% |
 
-Very short windows are noisy and perform poorly (`L=3` → Sharpe 0.113). Performance peaks at a **moderate** length — `L=24` is best (Sharpe 0.292) with `L=10` close behind — while long windows raise realized MAD and erode Sharpe. The lesson: short enough to adapt, long enough to avoid noise.
+The rolling-window sensitivity shows that very short lookback windows perform poorly. With `L=3`, the model has a Sharpe ratio of only 0.113 and a total return of 25.68%, so a three-month window contains too little information and makes the optimizer overly sensitive to noise. The strongest Sharpe ratio is obtained at `L=24` (0.292, total return 108.01%), with the baseline `L=10` also strong (0.286, 98.62%). Longer windows such as `L=36`, `L=48` and `L=60` produce lower Sharpe ratios, mainly because realized MAD increases. This suggests that a moderate window length is preferable — short enough to adapt to changing market conditions, but long enough to avoid excessive noise.
 
 <p align="center">
-  <img src="figures/rolling_sharpe_sensitivity.png" alt="Rolling sensitivity: Sharpe" width="48%">
-  <img src="figures/rolling_mad_sensitivity.png" alt="Rolling sensitivity: realized MAD" width="48%">
+  <img src="figures/rolling_sharpe_sensitivity.png" alt="Rolling-window sensitivity: Sharpe ratio" width="48%">
+  <img src="figures/rolling_mad_sensitivity.png" alt="Rolling-window sensitivity: realized MAD" width="48%">
 </p>
+
+*Figure 10. Rolling-window sensitivity measured by Sharpe ratio (left) and realized MAD (right).*
 
 ### Forgetting factor `λ`
 
@@ -195,36 +204,43 @@ Very short windows are noisy and perform poorly (`L=3` → Sharpe 0.113). Perfor
 | 0.99 | 1.212% | 5.523% | 0.175 | 0.203 | 0.602% | 69.08% |
 | 1.00 | 1.025% | 5.954% | 0.137 | 0.210 | 0.539% | 49.89% |
 
-Some forgetting helps. The best result is around **`λ ≈ 0.95`** (Sharpe 0.267). Too low (≤0.70) makes the model over-reactive and costly; too high (≥0.99, approaching no forgetting) makes it too slow to adapt, raising realized MAD and cutting Sharpe.
+The best expanding-window result is obtained around `λ=0.95`, where the Sharpe ratio is 0.267 and the total return is 117.60% — higher than the baseline `λ=0.97` (0.239, 101.68%). The results show that some forgetting is beneficial. When `λ` is too low (e.g. 0.50 or 0.70), the model becomes too reactive and transaction costs increase. When `λ` is too high, especially at 0.99 or 1.00, the model becomes too slow to adapt, realized MAD increases, and the Sharpe ratio falls. The expanding model therefore performs best when it gives substantial but not exclusive weight to recent observations.
 
 <p align="center">
-  <img src="figures/lambda_sharpe_sensitivity.png" alt="Forgetting-factor sensitivity: Sharpe" width="48%">
+  <img src="figures/lambda_sharpe_sensitivity.png" alt="Forgetting-factor sensitivity: Sharpe ratio" width="48%">
   <img src="figures/lambda_mad_sensitivity.png" alt="Forgetting-factor sensitivity: realized MAD" width="48%">
 </p>
 
-### Allocation cap `w_max`
+*Figure 11. Forgetting-factor sensitivity measured by Sharpe ratio (left) and realized MAD (right).*
 
-Tested over `{5%, 7.5%, 10%, 15%, 20%, 25%, 35%, 50%, 100%}`. At `w_max = 5%` both models are forced to equal weight (HHI 0.05, identical results). As the cap relaxes, concentration rises. For the **rolling** model the best Sharpe occurs around `20–25%` (≈0.288); relaxing further only increases concentration and reduces total return. For the **expanding** model a looser cap mainly lets it chase higher — but riskier and more concentrated — returns, peaking at 126.17% total return with `w_max=100%` (HHI 0.363, realized MAD 5.15%). The **25% cap is a sensible compromise**: enough flexibility to improve performance while still limiting concentration.
+### Allocation maximum `w_max`
+
+The allocation maximum was varied over `{5%, 7.5%, 10%, 15%, 20%, 25%, 35%, 50%, 100%}` for both adaptive models. Since there are 20 ETFs, the smallest feasible cap is 5%, which corresponds to an equal-weighted portfolio. At `w_max=5%`, both adaptive models are forced into the equal-weighted portfolio, so they have identical results and an HHI of 0.05. As the cap is relaxed, the models can take more concentrated positions and the HHI increases. For the rolling model, the best Sharpe ratios occur around `w_max=20%` and `w_max=25%` (0.288 and 0.286); relaxing the cap further does not improve performance, but instead makes the rolling model more concentrated and its total return declines. For the expanding model, relaxing the cap increases total return more strongly, reaching 126.17% at `w_max=100%` — but this also increases concentration (HHI rising to 0.363) and realized MAD (5.145%). The **25% cap is therefore a useful compromise**, as it allows the optimizer enough flexibility to improve performance while still limiting concentration to a few assets.
 
 <p align="center">
-  <img src="figures/wmax_sharpe_sensitivity.png" alt="Allocation-cap sensitivity: Sharpe" width="55%">
+  <img src="figures/wmax_sharpe_sensitivity.png" alt="Allocation-cap sensitivity: Sharpe ratio" width="55%">
 </p>
+
+*Figure 12. Allocation-cap sensitivity measured by Sharpe ratio.*
 
 ### Required monthly return `μ₀`
 
-Swept from 0% to 5% in 0.1-point steps. Selected results:
+The required monthly return `μ₀` was varied over a grid from 0% to 5% in steps of 0.1 percentage points. For low values of `μ₀` the return constraint is weak or non-binding and the optimizer can focus primarily on minimizing MAD; as `μ₀` increases, the optimizer is forced toward portfolios with higher estimated return, which generally increases realized risk. For sufficiently high values of `μ₀`, some monthly optimization problems may become infeasible, in which case the adaptive implementation keeps the previous portfolio.
 
 | Model | μ₀ | Avg. return | Realized MAD | Sharpe | Total return |
 |---|---:|---:|---:|---:|---:|
 | Non-adaptive | 0.0% | 1.145% | 3.038% | **0.317** | 78.72% |
 | Non-adaptive | 1.9% | 1.144% | 5.240% | 0.178 | 65.91% |
+| Non-adaptive | 2.4% | 1.344% | 6.665% | 0.161 | 71.57% |
 | Rolling | 1.9% | 1.396% | 3.869% | 0.286 | 98.62% |
 | **Rolling** | **2.0%** | 1.505% | 3.896% | **0.308** | 110.41% |
 | Rolling | 3.1% | 1.547% | 4.141% | 0.297 | 113.46% |
 | **Expanding** | **1.6%** | 1.511% | 4.069% | **0.296** | 110.06% |
 | Expanding | 1.9% | 1.500% | 4.933% | 0.239 | 101.68% |
 
-When `μ₀ = 0` the return constraint is non-binding and the models simply minimize risk — here the **static** model actually wins (Sharpe 0.317), which is consistent with the MAD model's purpose only really mattering once a positive target is set. Once a realistic target is imposed (≈1.6%–2.0%), the **adaptive models pull ahead** because they can update as new data arrives. The rolling model peaks near `μ₀ = 2.0%`, the expanding model near `μ₀ = 1.6%`.
+*Table 2. Selected results from the target-return sensitivity analysis.*
+
+The non-adaptive model obtains its highest Sharpe ratio for low values of `μ₀`, where the return constraint is not restrictive. For `μ₀ = 0` the return constraint is not binding, so the models only minimize risk, and the non-adaptive model gives the highest out-of-sample Sharpe ratio (0.317), compared with 0.215 for the rolling model and 0.246 for the expanding model. This does not contradict the main results, since the MAD model is mainly used when the investor sets a required return. Once a positive target return is imposed — especially around `μ₀ = 1.6%` to `2.0%` — the adaptive models perform better because they can update their portfolios as new data become available. The rolling model performs best around `μ₀ = 2.0%` (Sharpe ≈ 0.308), while the expanding model performs best at an intermediate target, around `μ₀ = 1.6%`.
 
 <p align="center">
   <img src="figures/mubar_sharpe.png" alt="Sharpe vs required return" width="32%">
@@ -232,25 +248,29 @@ When `μ₀ = 0` the return constraint is non-binding and the models simply mini
   <img src="figures/mubar_mad.png" alt="Realized MAD vs required return" width="32%">
 </p>
 
-*Figure 9. Sensitivity of Sharpe, total return and realized MAD to the required monthly return `μ₀`.* Flat segments in the high-`μ₀` region of the adaptive curves reflect months where the problem was infeasible and the previous portfolio was carried forward.
+*Figure 13. Sensitivity of the Sharpe ratio (left), total return (centre) and realized MAD (right) to the required monthly return `μ₀`.* For the non-adaptive model, realized MAD increases sharply as `μ₀` grows, indicating that the static model is forced into riskier portfolios when the required return is raised. The flat segments in the high-`μ₀` region of the expanding curve reflect that the implementation keeps the previous portfolio when the monthly optimization problem cannot be solved feasibly.
 
 ## 9. Discussion
 
-Adaptive rebalancing was introduced to address a clear limitation of the standard MAD model: in the static formulation, weights are fixed once on historical data, implicitly assuming market conditions stay stable — which they rarely do. Re-estimating over time lets the model absorb new information.
+The results show that adaptive rebalancing works best when the investor sets a positive return target. When `μ₀ = 0` the model mainly minimizes risk, and the static portfolio has the highest Sharpe ratio in the test period. For the main positive return targets tested, especially around `μ₀ = 1.6%` to `2.0%`, the adaptive models perform better because they can update the portfolio as new data becomes available.
 
-The rolling and expanding approaches represent two ways of using history. The rolling model focuses on recent observations and adapts quickly, which improves risk-adjusted performance (higher Sharpe). The expanding model uses a larger information set, producing more stable estimates, higher total returns, but also higher realized risk. The allocation cap and transaction costs make the comparison realistic: without a cap the optimizer concentrates heavily, and ignoring trading costs would overstate the value of frequent rebalancing.
+The main motivation for introducing adaptive extensions was to address a limitation of the standard MAD model: in the non-adaptive formulation, portfolio weights are determined once using historical data and then kept fixed throughout the test period, which assumes that market conditions remain relatively stable — rarely the case in practice. The rolling and expanding approaches represent two different ways of using historical information. The rolling model focuses on the most recent observations and therefore adapts more quickly to changes in return patterns, which appears to improve the risk-adjusted performance. In contrast, the expanding model uses a larger information set and therefore produces more stable estimates, leading to higher total returns but also higher realized risk.
 
-Importantly, the sensitivity analyses show adaptive strategies do **not** automatically beat the static model — performance depends strongly on `L`, `λ`, `w_max` and `μ₀`. Moderate parameter values generally win; overly aggressive settings raise risk and destabilize the portfolio.
+The allocation cap and transaction costs were introduced to make the model more realistic. Without an allocation cap, the optimizer tends to concentrate the portfolio in a small number of assets, so the cap serves as a diversification mechanism. Transaction costs are particularly important for adaptive strategies, since frequent rebalancing generates additional trading activity, and ignoring these costs would overestimate the practical value of adaptive portfolio management. The sensitivity analyses show that adaptive strategies do not automatically outperform the static model — performance depends strongly on the rolling window length `L`, the forgetting factor `λ` and the required return level, with moderate parameter values generally providing the best results.
 
 ## 10. Conclusion
 
-Adaptive MAD models can meaningfully improve on a static MAD portfolio **when a positive return target is imposed** — but no single framework dominates across all criteria. The preferred strategy depends solely on the investor's objective:
+This project investigated the practical performance of the MAD portfolio optimization model using monthly return data from twenty U.S. ETFs with an initial training period and an out-of-sample test period. The standard non-adaptive MAD model was extended with adaptive rebalancing schemes, allocation caps, and proportional transaction costs in order to better reflect realistic portfolio management principles.
 
-- **Best risk-adjusted performance** → rolling window
-- **Highest total return** → expanding window
+The empirical results show that adaptive rebalancing can indeed improve out-of-sample performance relative to a static MAD portfolio when a positive target return is imposed. Both adaptive approaches achieved higher returns than the non-adaptive model, while the rolling adaptive model obtained the highest Sharpe ratio and the expanding adaptive model achieved the highest total return over the test period. Allocation caps reduced portfolio concentration and improved diversification, while transaction costs provided a more realistic assessment of the benefits of frequent rebalancing.
+
+In conclusion, adaptive MAD models can provide meaningful improvements over a static MAD strategy, but **no single adaptive framework dominates under all evaluation criteria**. The preferred strategy depends solely on the investor's objective:
+
+- **Strongest risk-adjusted performance** → the rolling model
+- **Highest total return** → the expanding model
 - **Lowest realized risk** → the passive SPY benchmark
 
-The other key finding is that adaptive MAD optimization delivers strong performance **only when supported by careful parameter selection and realistic modeling assumptions** (caps, costs, sensible windows).
+Another key conclusion is that adaptive MAD portfolio optimization delivers strong performance only when supported by careful parameter selection and realistic modeling assumptions.
 
 ## 11. Repository layout and how to run
 
@@ -263,7 +283,7 @@ python/
 julia/
   MAD_solve.jl                 core MAD LP (simple + rebalancing with transaction costs)
   run_MAD_simple.jl            solve simple MAD, evaluate out-of-sample
-  run_non_adaptive.jl          static strategy
+  run_non_adaptive.jl          non-adaptive (static) strategy
   run_rolling_adaptive.jl      rolling-window strategy
   run_expanding_adaptive.jl    expanding-window strategy (exponential forgetting)
   main_comparison.jl           run all three + SPY, produce comparison figures
@@ -271,7 +291,7 @@ julia/
   driver_test_L.jl             sensitivity: rolling-window length
   driver_test_lambda.jl        sensitivity: forgetting factor
   driver_test_mubar.jl         sensitivity: required return
-  driver_test_wmax.jl          sensitivity: allocation cap
+  driver_test_wmax.jl          sensitivity: allocation maximum
 ```
 
 **1. Generate the data (Python)**
@@ -294,7 +314,7 @@ julia julia/driver_test_wmax.jl
 
 > Gurobi can be swapped for the open-source **Cbc** solver in `MAD_solve.jl` (the import and `Model(Cbc.Optimizer)` lines are already present, commented out) if a Gurobi license isn't available.
 
-The full code repository and the `G6.2_CodeAndData.zip` archive (CSVs + Julia files) are available at the project's GitHub repository: <https://github.com/Taim689/PortfolioOptimization>.
+The full code repository and the `G6.2_CodeAndData.zip` archive (the `.csv` files and selected Julia files) are available at: <https://github.com/Taim689/PortfolioOptimization>.
 
 ## References
 
@@ -322,10 +342,8 @@ The full code repository and the `G6.2_CodeAndData.zip` archive (CSVs + Julia fi
 
 [^rebalancing]: Investopedia (Mar 2025). *How to Rebalance Your Portfolio*. <https://www.investopedia.com/how-to-rebalance-your-portfolio-7973806> (accessed Jun 16, 2026).
 
-[^rebalancing_tc]: Springer Nature (Sep 2022). *Rebalancing with transaction costs: theory, simulations, and actual data*. <https://link.springer.com/article/10.1007/s11408-022-00419-6> (accessed Jun 16, 2026).
-
 [^transcosts]: Investopedia (Oct 2025). *Understanding Transaction Costs: Definition, Examples, and Impact*. <https://www.investopedia.com/terms/t/transactioncosts.asp> (accessed Jun 16, 2026).
 
-## Declaration of generative AI use
+## AI declaration
 
-The authors used large language models to assist with writing parts of the code, in particular the generation of the graphical visualization code. The model formulation, methodological choices, experimental design, and interpretation of all results were developed and reviewed by the authors, who take full responsibility for the final code, results, and claims made about them.
+We declare that we used large language models to assist with writing parts of the code, especially for the generation of the graphical visualizations code.
