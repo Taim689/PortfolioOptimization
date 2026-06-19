@@ -7,32 +7,6 @@ include("MAD_solve.jl")
 using .MAD_solve
 const MOI = MathOptInterface
 
-"""
-    run_expanding_adaptive(R_train, R_test, x_old_start, mu_bar,
-                           c_vec, w_max, use_allocation_max, lambda)
-
-Re-solve the MAD rebalancing model before every test month using an ever-growing
-history of observations.  Older observations are down-weighted by exponential
-forgetting with decay factor `lambda`.
-
-Arguments
----------
-- `R_train`            : (n × T_train) training return matrix.
-- `R_test`             : (n × K) test return matrix.
-- `x_old_start`        : Length-n vector of initial portfolio weights before month 1.
-- `mu_bar`             : Minimum required monthly return (scalar).
-- `c_vec`              : Length-n vector of proportional transaction cost rates.
-- `w_max`              : Maximum allocation per asset (scalar, e.g. 0.25).
-- `use_allocation_max` : Bool — whether to enforce the allocation cap.
-- `lambda`             : Exponential forgetting factor in (0, 1].  lambda = 1 gives
-                         equal weights; smaller values discount older observations more.
-
-Returns
--------
-- `returns` : Length-K vector of realized net-of-cost portfolio returns.
-- `weights` : (n × K) matrix of portfolio weights chosen before each test month.
-- `costs`   : Length-K vector of transaction costs paid each month.
-"""
 function run_expanding_adaptive(
     R_train::Matrix{Float64},
     R_test::Matrix{Float64},
