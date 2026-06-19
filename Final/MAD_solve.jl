@@ -122,3 +122,5 @@ function solve_MAD_rebalancing(R, p, mu_assets, mu_bar, x_old, c_vec, w_max, use
     optimize!(model)
     return model, x, y, d, mu, b, s
 end
+
+end
