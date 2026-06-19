@@ -59,8 +59,6 @@ function solve_MAD_simple(mu_bar, R, p, mu_assets, asset_names, use_allocation_m
     return model, x, y, d, mu
 end
 
-end
-
 function solve_MAD_rebalancing(R, p, mu_assets, mu_bar, x_old, c_vec, w_max, use_allocation_max)
     n, T = size(R)
 
