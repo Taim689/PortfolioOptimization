@@ -14,7 +14,7 @@ function solve_MAD_rebalancing(R, p, mu_assets, mu_bar, x_old, c_vec, w_max, use
 
     @variable(model, x[1:n] >= 0)
     @variable(model, y[1:T])
-    @variable(model, d[1:T] >= 0)
+    @variable(model, d[1:T])
     @variable(model, mu)
     @variable(model, b[1:n] >= 0)
     @variable(model, s[1:n] >= 0)
@@ -66,7 +66,7 @@ function solve_MAD_simple(mu_bar, R, p, mu_assets, asset_names, use_allocation_m
     @variable(model, y[1:T])
 
     # Absolute deviations from mean return
-    @variable(model, d[1:T] >= 0)
+    @variable(model, d[1:T])
 
     # Mean portfolio return
     @variable(model, mu)
