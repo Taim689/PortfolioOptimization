@@ -30,7 +30,7 @@ function run_expanding_adaptive(
     for k in 1:K
         T_hist = size(R_hist, 2)
 
-        # Exponential forgetting: recent scenarios receive higher probability.
+        # Exponential forgetting, recent scenarios receive a higher probability.
         raw_weights = [lambda^(T_hist - t) for t in 1:T_hist]
         p           = raw_weights ./ sum(raw_weights)
         mu_assets   = [sum(p[t] * R_hist[j, t] for t in 1:T_hist) for j in 1:n]
@@ -60,7 +60,7 @@ function run_expanding_adaptive(
         weights[:, k] = x_new
 
         x_old  = copy(x_new)
-        # Expand the history with the now-observed test month.
+        # Expand the history observations matrix with the newly observed test month.
         R_hist = hcat(R_hist, R_test[:, k])
     end
 
