@@ -8,25 +8,6 @@ using .MAD_solve
 
 const MOI = MathOptInterface
 
-"""
-    run_non_adaptive(R_train, R_test, mu_bar, asset_names)
-
-Solve the simple MAD model once on the training data and evaluate the fixed portfolio on the test data.
-
-Arguments
----------
-- `R_train`      : (n × T_train) matrix of monthly returns for the training period.
-- `R_test`       : (n × K) matrix of monthly returns for the test period.
-- `mu_bar`       : Minimum required monthly return (scalar).
-- `asset_names`  : Vector of n asset ticker strings.
-
-Returns
--------
-- `returns`  : Vector of length K with realized portfolio returns each test month.
-- `weights`  : (n × K) matrix where every column equals the static weight vector.
-- `costs`    : Vector of length K of zeros (no rebalancing costs).
-- `x_static` : Vector of length n with the optimal portfolio weights.
-"""
 function run_non_adaptive(
     R_train::Matrix{Float64},
     R_test::Matrix{Float64},
@@ -55,7 +36,7 @@ function run_non_adaptive(
 
     x_static = value.(x_static_var)
 
-    # Evaluate the fixed portfolio on every test month.
+    # Evaluate the fixed portfolio on every new test month.
     returns = [sum(R_test[j, k] * x_static[j] for j in 1:n) for k in 1:K]
     weights = repeat(x_static, 1, K)
     costs   = zeros(K)
@@ -63,4 +44,4 @@ function run_non_adaptive(
     return returns, weights, costs, x_static
 end
 
-end # module
+end 
