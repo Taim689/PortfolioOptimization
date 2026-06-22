@@ -314,8 +314,6 @@ julia julia/driver_test_wmax.jl
 
 > Gurobi can be swapped for the open-source **Cbc** solver in `MAD_solve.jl` (the import and `Model(Cbc.Optimizer)` lines are already present, commented out) if a Gurobi license isn't available.
 
-The full code repository and the `G6.2_CodeAndData.zip` archive (the `.csv` files and selected Julia files) are available at: <https://github.com/Taim689/PortfolioOptimization>.
-
 ## References
 
 [^book]: Mansini, R., Speranza, M.G., and Ogryczak, W. (2015). *Linear and Mixed Integer Programming for Portfolio Optimization*. Springer.
