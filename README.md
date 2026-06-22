@@ -343,7 +343,3 @@ The full code repository and the `G6.2_CodeAndData.zip` archive (the `.csv` file
 [^rebalancing]: Investopedia (Mar 2025). *How to Rebalance Your Portfolio*. <https://www.investopedia.com/how-to-rebalance-your-portfolio-7973806> (accessed Jun 16, 2026).
 
 [^transcosts]: Investopedia (Oct 2025). *Understanding Transaction Costs: Definition, Examples, and Impact*. <https://www.investopedia.com/terms/t/transactioncosts.asp> (accessed Jun 16, 2026).
-
-## AI declaration
-
-We declare that we used large language models to assist with writing parts of the code, especially for the generation of the graphical visualizations code.
